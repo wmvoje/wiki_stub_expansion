@@ -8,8 +8,10 @@ import pathlib
 import mwapi
 import mwparserfromhell
 import glob
+import pickle
 
 # Version history collection
+
 
 def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
                                         host='https://en.wikipedia.org'):
@@ -28,17 +30,25 @@ def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
     # Create diectory
     pathlib.Path(directory).mkdir(parents=True, exist_ok=True)
 
+    # Create dictionary to store wikilink data
+    wikilink_dict = dict()
+
     # populate the directory with many csv files
-    write_revision_history_files(directory, wiki_title, agent_email, host)
+    write_revision_history_files(directory, wiki_title, agent_email, host,
+                                 wikilink_dict)
 
     # Consolidate csv files into single document
-    df = pd.concat(pd.read_csv(i) for i in glob.iglob(directory + '*.csv'))
-
-    # Write summary file
+    df = pd.concat([pd.read_csv(i) for i in glob.iglob(directory + '*.csv')],
+                   sort=True)
     df.to_csv(os.path.join(directory, 'summary_' + wiki_title + '.csv'))
 
+    # Dump pickle file
+    with open(os.path.join(directory, 'wikilinks_to_revids.p'), 'wb') as topick:
+        pickle.dump(wikilink_dict, topick)
 
-def write_revision_history_files(directory, wiki_title, agent_email, host):
+
+def write_revision_history_files(directory, wiki_title, agent_email, host,
+                                 wikilink_dict):
     """ Creates a wikipedia session and then itereates over an entire wiki
     history of revisions, processes those revisions, and saves every section of
     histories that wikipeida provides as individual entry.
@@ -55,7 +65,7 @@ def write_revision_history_files(directory, wiki_title, agent_email, host):
     # Define the headings of data to be stored
     headings = ['revid', 'parentid', 'user', 'userid', 'timestamp', 'comment',
                 'character_count', 'external_link_count', 'heading_count',
-                'wikilink_count', 'wikilinks']
+                'wikifile_count', 'wikilink_count']
 
     # Query every revision of the page
     for rev_count, revision_set in enumerate(session.get(continuation=True,
@@ -77,13 +87,17 @@ def write_revision_history_files(directory, wiki_title, agent_email, host):
             # Extract information on the website itself
             parsed = mwparserfromhell.parse(revision['*'])
 
-            [character_count, external_link_count, heading_count,
-             wikilink_count, wikilinks] = parsed_article_metrics(parsed)
+            [character_count, external_link_count,
+             heading_count, wikilink_count,
+             wikifile_count, wikilink_dict] = parsed_article_metrics(parsed,
+                                                                     revid,
+                                                                     wikilink_dict)
 
             data_frame.loc[count] = [revid, parentid, user, userid, timestamp,
                                      comment, character_count,
                                      external_link_count,
-                                     heading_count, wikilink_count, wikilinks]
+                                     heading_count,  wikifile_count,
+                                     wikilink_count]
 
         # Dump the dataframe
         data_frame.to_csv(os.path.join(directory,
@@ -105,7 +119,7 @@ def revision_information(revision_json):
             revision_json['timestamp'], revision_json['comment']]
 
 
-def parsed_article_metrics(parsed_article):
+def parsed_article_metrics(parsed_article, revid, wikilink_dict):
     """This should take a parsed article and pull out metrics of interest.
     Args:
         parsed_article (parsed): Parsed wikipedia site (mwparserfromhell)
@@ -116,8 +130,29 @@ def parsed_article_metrics(parsed_article):
     character_count = len(parsed_article.strip_code())
     external_link_count = len(parsed_article.filter_external_links())
     heading_count = len(parsed_article.filter_headings())
-    wikilink_count = len(set([str(link)
-                              for link in parsed_article.filter_wikilinks()]))
+    [wikilink_count, wikifile_count,
+     wikilink_dict] = process_wikilinks(parsed_article, revid, wikilink_dict)
 
     return [character_count, external_link_count, heading_count,
-            wikilink_count, parsed_article.filter_wikilinks()]
+            wikilink_count, wikifile_count, wikilink_dict]
+
+
+def process_wikilinks(parsed, revid, wikilink_dictionary):
+
+    wikifiles = 0
+    wikilinks = 0
+
+    for link in set([str(link.title) for link in parsed.filter_wikilinks()]):
+
+        # Build the dictionary
+        try:
+            wikilink_dictionary[link].append(revid)
+        except KeyError:
+            wikilink_dictionary[link] = [revid]
+
+        if link.startswith('File:'):
+            wikifiles += 1
+        else:
+            wikilinks += 1
+
+    return wikilinks, wikifiles, wikilink_dictionary
