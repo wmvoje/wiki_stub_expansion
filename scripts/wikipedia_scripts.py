@@ -9,12 +9,15 @@ import mwapi
 import mwparserfromhell
 import glob
 import pickle
+import datetime
+import dateutil
 
 # Version history collection
 
 
 def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
-                                        host='https://en.wikipedia.org'):
+                                        host='https://en.wikipedia.org',
+                                        earliest_date=None):
     """collects and consolidates all historical edits of a wikipedia page in
     the specified directory.
 
@@ -23,9 +26,12 @@ def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
         wiki_title (st): Title of wikipedia article to search.
         agent_email (str): Email sever messages will be sent to.
         host (str, optional): Wiki to interact with.
+        earliest_date (str, optional): Earliest day to scrub to 'YYYYMMDD' format
 
 
     """
+    if earliest_date is not None:
+        earliest_date = dateutil.parser.DEFAULTPARSER.parse(earliest_date)
 
     # Create diectory
     pathlib.Path(directory).mkdir(parents=True, exist_ok=True)
@@ -35,7 +41,7 @@ def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
 
     # populate the directory with many csv files
     write_revision_history_files(directory, wiki_title, agent_email, host,
-                                 wikilink_dict)
+                                 wikilink_dict, earliest_date)
 
 
     # Consolidate csv files into single document
@@ -49,7 +55,7 @@ def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
 
 
 def write_revision_history_files(directory, wiki_title, agent_email, host,
-                                 wikilink_dict):
+                                 wikilink_dict, earliest_date):
     """ Creates a wikipedia session and then itereates over an entire wiki
     history of revisions, processes those revisions, and saves every section of
     histories that wikipeida provides as individual entry.
@@ -68,6 +74,7 @@ def write_revision_history_files(directory, wiki_title, agent_email, host,
                 'character_count', 'external_link_count', 'heading_count',
                 'wikifile_count', 'wikilink_count']
 
+    quit_this_function = False
     # Query every revision of the page
     for rev_count, revision_set in enumerate(session.get(continuation=True,
                                              action='query', titles=wiki_title,
@@ -95,6 +102,13 @@ def write_revision_history_files(directory, wiki_title, agent_email, host,
             except:
                 break
 
+            
+            if earliest_date is not None:
+                if earliest_date > dateutil.parser.DEFAULTPARSER.parse(timestamp).replace(tzinfo=None):
+                    # If the timestamp is before the earliest date stop digging
+                    quit_this_function = True
+                    break
+
             [character_count, external_link_count,
              heading_count, wikilink_count,
              wikifile_count, wikilink_dict] = parsed_article_metrics(parsed,
@@ -110,6 +124,8 @@ def write_revision_history_files(directory, wiki_title, agent_email, host,
         # Dump the dataframe
         data_frame.to_csv(os.path.join(directory,
                                        wiki_title + "_" + str(rev_count) + '.csv'))
+        if quit_this_function:
+            return
 
 
 def revision_information(revision_json):
