@@ -37,6 +37,7 @@ def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
     write_revision_history_files(directory, wiki_title, agent_email, host,
                                  wikilink_dict)
 
+
     # Consolidate csv files into single document
     df = pd.concat([pd.read_csv(i) for i in glob.iglob(directory + '*.csv')],
                    sort=True)
@@ -81,11 +82,18 @@ def write_revision_history_files(directory, wiki_title, agent_email, host,
         for count, revision in enumerate(next(iter(revision_set['query']['pages'].values()))['revisions']):
 
             # Extract edit information
-            [revid, parentid, user,
-             userid, timestamp, comment] = revision_information(revision)
+            try:
+                [revid, parentid, user, userid, timestamp, comment] = revision_information(revision)
+            except:
+                # This is a sloppy except call to deal with anamolus edits
+                print(revision)
+                break
 
             # Extract information on the website itself
-            parsed = mwparserfromhell.parse(revision['*'])
+            try:
+                parsed = mwparserfromhell.parse(revision['*'])
+            except:
+                break
 
             [character_count, external_link_count,
              heading_count, wikilink_count,
