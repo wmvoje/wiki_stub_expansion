@@ -9,8 +9,8 @@ import mwapi
 import mwparserfromhell
 import glob
 import pickle
-import datetime
 import dateutil
+
 
 # Version history collection
 
@@ -33,24 +33,24 @@ def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
     if earliest_date is not None:
         earliest_date = dateutil.parser.DEFAULTPARSER.parse(earliest_date)
 
-    # Create diectory
+    # # Create diectory
     pathlib.Path(directory).mkdir(parents=True, exist_ok=True)
 
-    # Create dictionary to store wikilink data
+    # # Create dictionary to store wikilink data
     wikilink_dict = dict()
 
-    # populate the directory with many csv files
+    # # populate the directory with many csv files
     write_revision_history_files(directory, wiki_title, agent_email, host,
                                  wikilink_dict, earliest_date)
 
-
     # Consolidate csv files into single document
-    df = pd.concat([pd.read_csv(i) for i in glob.iglob(directory + '*.csv')],
+    df = pd.concat([pd.read_csv(i) for i in directory.glob('*.csv')],
                    sort=True)
-    df.to_csv(os.path.join(directory, 'summary_' + wiki_title + '.csv'))
+
+    df.to_csv(directory / ('summary_' + wiki_title + '.csv'))
 
     # Dump pickle file
-    with open(os.path.join(directory, 'wikilinks_to_revids.p'), 'wb') as topick:
+    with open(directory / 'wikilinks_to_revids.p', 'wb') as topick:
         pickle.dump(wikilink_dict, topick)
 
 
@@ -70,7 +70,8 @@ def write_revision_history_files(directory, wiki_title, agent_email, host,
     session = mwapi.Session(host, user_agent=agent_email)
 
     # Define the headings of data to be stored
-    headings = ['revid', 'parentid', 'user', 'userid', 'timestamp', 'comment',
+    headings = ['page_title', 'revid', 'parentid', 'user', 'userid',
+                'timestamp', 'comment',
                 'character_count', 'external_link_count', 'heading_count',
                 'wikifile_count', 'wikilink_count']
 
@@ -102,7 +103,6 @@ def write_revision_history_files(directory, wiki_title, agent_email, host,
             except:
                 break
 
-            
             if earliest_date is not None:
                 if earliest_date > dateutil.parser.DEFAULTPARSER.parse(timestamp).replace(tzinfo=None):
                     # If the timestamp is before the earliest date stop digging
@@ -115,7 +115,8 @@ def write_revision_history_files(directory, wiki_title, agent_email, host,
                                                                      revid,
                                                                      wikilink_dict)
 
-            data_frame.loc[count] = [revid, parentid, user, userid, timestamp,
+            data_frame.loc[count] = [wiki_title, revid, parentid, user,
+                                     userid, timestamp,
                                      comment, character_count,
                                      external_link_count,
                                      heading_count,  wikifile_count,
