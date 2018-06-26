@@ -9,12 +9,16 @@ import mwapi
 import mwparserfromhell
 import glob
 import pickle
+import dateutil
+import re
+import csv
+import json
+
 
 # Version history collection
 
-
 def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
-                                        host='https://en.wikipedia.org'):
+                                        earliest_date=None):
     """collects and consolidates all historical edits of a wikipedia page in
     the specified directory.
 
@@ -23,51 +27,69 @@ def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
         wiki_title (st): Title of wikipedia article to search.
         agent_email (str): Email sever messages will be sent to.
         host (str, optional): Wiki to interact with.
+        earliest_date (str, optional): Earliest day to scrub to 'YYYYMMDD' format
 
 
     """
+    # process datetime information
+    if earliest_date is not None:
+        earliest_date = dateutil.parser.DEFAULTPARSER.parse(earliest_date)
 
-    # Create diectory
-    pathlib.Path(directory).mkdir(parents=True, exist_ok=True)
+    # Process directory information
+    directory = pathlib.Path(directory)
+    wiklink_directory = directory / 'wikilinks'
+    revision_directory = directory / 'revisions'
 
-    # Create dictionary to store wikilink data
-    wikilink_dict = dict()
+    directory.mkdir(parents=True, exist_ok=True)
+    wiklink_directory.mkdir(parents=True, exist_ok=True)
+    revision_directory.mkdir(parents=True, exist_ok=True)
 
-    # populate the directory with many csv files
-    write_revision_history_files(directory, wiki_title, agent_email, host,
-                                 wikilink_dict)
+    # Consult the database file TODO
+    # This csv will have all pages with timestamps of when they were updated
 
+    headings = ['page_title', 'revid', 'parentid', 'user', 'userid',
+                'timestamp', 'comment',
+                'character_count', 'word_count', 'external_link_count',
+                'heading_count', 'wikifile_count', 'wikilink_count']
+    # Check the revision history file
+    if (revision_directory / (wiki_title + '.csv')).is_file():
+        revision_csv = open(revision_directory / (wiki_title + '.csv'), 'a',
+                            newline='')
+        revision_writer = csv.writer(revision_csv)
+    else:
+        revision_csv = open(revision_directory / (wiki_title + '.csv'), 'w',
+                            newline='')
+        revision_writer = csv.writer(revision_csv)
+        revision_writer.writerow(headings)
 
-    # Consolidate csv files into single document
-    df = pd.concat([pd.read_csv(i) for i in glob.iglob(directory + '*.csv')],
-                   sort=True)
-    df.to_csv(os.path.join(directory, 'summary_' + wiki_title + '.csv'))
+    # Check the wikilinks file
+    if (wiklink_directory / (wiki_title + '.json')).is_file():
+        with open(wiklink_directory / (wiki_title + '.json'), 'r') as tounpick:
+            wikilink_dict = json.load(tounpick)
+    else:
+        wikilink_dict = dict()
+
+    # # populate the directory with many csv files
+    wikilink_dict = update_revisions_and_links(wiki_title, agent_email,
+                                               revision_writer,
+                                               wikilink_dict, earliest_date,
+                                               latest_date='NOW')
+
+    # Close the revision csv
+    revision_csv.close()
 
     # Dump pickle file
-    with open(os.path.join(directory, 'wikilinks_to_revids.p'), 'wb') as topick:
-        pickle.dump(wikilink_dict, topick)
+    with open(wiklink_directory / (wiki_title + '.json'), 'w') as topick:
+        json.dump(wikilink_dict, topick)
 
 
-def write_revision_history_files(directory, wiki_title, agent_email, host,
-                                 wikilink_dict):
-    """ Creates a wikipedia session and then itereates over an entire wiki
-    history of revisions, processes those revisions, and saves every section of
-    histories that wikipeida provides as individual entry.
-
-    Args:
-        directory (str): Path to directory.
-        wiki_title (st): Title of wikipedia article to search.
-        agent_email (str): Email sever messages will be sent to.
-        host (str, optional): Wiki to interact with.
-    """
-    # Initialize the session
+def update_revisions_and_links(wiki_title, agent_email, revision_csv,
+                               wikilink_dict, earliest_date, latest_date='NOW',
+                               host='https://en.wikipedia.org'):
+    """"""
     session = mwapi.Session(host, user_agent=agent_email)
 
-    # Define the headings of data to be stored
-    headings = ['revid', 'parentid', 'user', 'userid', 'timestamp', 'comment',
-                'character_count', 'external_link_count', 'heading_count',
-                'wikifile_count', 'wikilink_count']
-
+    quit_this_function = False
     # Query every revision of the page
     for rev_count, revision_set in enumerate(session.get(continuation=True,
                                              action='query', titles=wiki_title,
@@ -75,17 +97,17 @@ def write_revision_history_files(directory, wiki_title, agent_email, host,
                                              rvprop='ids|flags|timestamp|comment|user|userid|content',
                                              rvlimit='max')):
 
-        # Make dataframe for storing information
-        data_frame = pd.DataFrame(columns=headings)
-
         # Iterate over revision
         for count, revision in enumerate(next(iter(revision_set['query']['pages'].values()))['revisions']):
 
             # Extract edit information
             try:
-                [revid, parentid, user, userid, timestamp, comment] = revision_information(revision)
+                [revid, parent_id,
+                 contrib_username, contrib_id,
+                 timestamp, comment] = revision_information(revision)
             except:
                 # This is a sloppy except call to deal with anamolus edits
+                print('this was an anomolus edit')
                 print(revision)
                 break
 
@@ -95,54 +117,67 @@ def write_revision_history_files(directory, wiki_title, agent_email, host,
             except:
                 break
 
-            [character_count, external_link_count,
-             heading_count, wikilink_count,
-             wikifile_count, wikilink_dict] = parsed_article_metrics(parsed,
-                                                                     revid,
-                                                                     wikilink_dict)
+            if earliest_date is not None:
+                if earliest_date > dateutil.parser.DEFAULTPARSER.parse(timestamp).replace(tzinfo=None):
+                    # If the timestamp is before the earliest date stop digging
+                    quit_this_function = True
+                    break
 
-            data_frame.loc[count] = [revid, parentid, user, userid, timestamp,
-                                     comment, character_count,
-                                     external_link_count,
-                                     heading_count,  wikifile_count,
-                                     wikilink_count]
+            [character_count, word_count,
+             external_link_count, heading_count,
+             wikilink_count, wikifile_count,
+             wikilink_dict] = parsed_article_metrics(parsed, revid,
+                                                     wikilink_dict)
 
-        # Dump the dataframe
-        data_frame.to_csv(os.path.join(directory,
-                                       wiki_title + "_" + str(rev_count) + '.csv'))
+            try:
+                revision_csv.writerow([wiki_title, revid, parent_id,
+                                       contrib_username, contrib_id,
+                                       timestamp, comment, character_count,
+                                       word_count,
+                                       external_link_count, heading_count,
+                                       wikilink_count, wikifile_count])
+            except UnicodeEncodeError:
+                print([wiki_title, revid, parent_id,
+                       contrib_username, contrib_id,
+                       timestamp, comment, character_count,
+                       word_count,
+                       external_link_count, heading_count,
+                       wikilink_count, wikifile_count])
+
+        if quit_this_function:
+            return wikilink_dict
+
+    return wikilink_dict
 
 
 def revision_information(revision_json):
-    """This returns [revid, parentid, user, userid, timestamp, comment] from a
-    json which details the metadata of the revision
 
-    Args:
-        revision_json (dict): json/dict structure of the revision data
+    try:
+        parent_id = revision_json['parentid']
+    except AttributeError:
+        # No parent was assigned
+        parent_id = None
 
-    Returns:
-        TYPE: list
-    """
-    return [revision_json['revid'], revision_json['parentid'],
-            revision_json['user'], revision_json['userid'],
-            revision_json['timestamp'], revision_json['comment']]
+    # Contributor
+    try:
+        contrib_username = revision_json['user']
+    except AttributeError:
+        contrib_username = None
 
+    try:
+        contrib_id = revision_json['userid']
+    except AttributeError:
+        contrib_id = None
 
-def parsed_article_metrics(parsed_article, revid, wikilink_dict):
-    """This should take a parsed article and pull out metrics of interest.
-    Args:
-        parsed_article (parsed): Parsed wikipedia site (mwparserfromhell)
+    try:
+        comment = revision_json['comment']
+    except AttributeError:
+        comment = None
 
-    Returns:
-        TYPE: list
-    """
-    character_count = len(parsed_article.strip_code())
-    external_link_count = len(parsed_article.filter_external_links())
-    heading_count = len(parsed_article.filter_headings())
-    [wikilink_count, wikifile_count,
-     wikilink_dict] = process_wikilinks(parsed_article, revid, wikilink_dict)
+    return [revision_json['revid'], parent_id,
+            contrib_username, contrib_id,
+            revision_json['timestamp'], comment]
 
-    return [character_count, external_link_count, heading_count,
-            wikilink_count, wikifile_count, wikilink_dict]
 
 
 def process_wikilinks(parsed, revid, wikilink_dictionary):
@@ -164,3 +199,23 @@ def process_wikilinks(parsed, revid, wikilink_dictionary):
             wikilinks += 1
 
     return wikilinks, wikifiles, wikilink_dictionary
+
+
+def parsed_article_metrics(parsed_article, revid, wikilink_dict):
+    """This should take a parsed article and pull out metrics of interest.
+    Args:
+        parsed_article (parsed): Parsed wikipedia site (mwparserfromhell)
+
+    Returns:
+        TYPE: list
+    """
+    character_count = len(parsed_article.strip_code())
+    # This is not an efficent word count
+    word_count = len(re.findall("[a-zA-Z_]+", parsed_article.strip_code()))
+    external_link_count = len(parsed_article.filter_external_links())
+    heading_count = len(parsed_article.filter_headings())
+    [wikilink_count, wikifile_count,
+     wikilink_dict] = process_wikilinks(parsed_article, revid, wikilink_dict)
+
+    return [character_count, word_count, external_link_count, heading_count,
+            wikilink_count, wikifile_count, wikilink_dict]
