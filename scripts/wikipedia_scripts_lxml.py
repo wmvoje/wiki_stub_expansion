@@ -12,6 +12,7 @@ from lxml import etree
 from io import StringIO, BytesIO
 import json
 from lxml import html
+import lxml
 
 # Version history collection
 
@@ -115,7 +116,7 @@ def update_revisions_and_links(wiki_title, revision_csv, wikilink_dict,
 
         tree = html.parse(BytesIO(r.content))
 
-        for count, action in enumerate(tree.iter('revision')):
+        for count, action in enumerate(tree.iter(tag='revision')):
             # revid = parent_id = contrib_username = contrib_id = timestamp = comment = bodytext = None
             # for child in action.getchildren():
             #     text = child.text
@@ -251,6 +252,7 @@ def process_wikilinks(parsed, revid, wikilink_dictionary):
             wikilinks += 1
 
     return wikilinks, wikifiles, wikilink_dictionary
+
 
 def stringify_children(node):
     """Given a LXML tag, return contents as a string
