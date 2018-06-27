@@ -52,15 +52,12 @@ def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
                 'character_count', 'word_count', 'external_link_count',
                 'heading_count', 'wikifile_count', 'wikilink_count']
     # Check the revision history file
-    if (revision_directory / (wiki_title + '.csv')).is_file():
-        revision_csv = open(revision_directory / (wiki_title + '.csv'), 'a',
-                            newline='')
-        revision_writer = csv.writer(revision_csv)
-    else:
-        revision_csv = open(revision_directory / (wiki_title + '.csv'), 'w',
-                            newline='')
-        revision_writer = csv.writer(revision_csv)
-        revision_writer.writerow(headings)
+    revision_path = revision_directory / (wiki_title + '.csv')
+    if not revision_path.is_file():
+        with open(revision_path, encoding='UTF-16',
+                  mode='w', newline='') as file:
+            csvwriter = csv.writer(file)
+            csvwriter.writerow(headings)
 
     # Check the wikilinks file
     if (wiklink_directory / (wiki_title + '.json')).is_file():
@@ -71,19 +68,23 @@ def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
 
     # # populate the directory with many csv files
     wikilink_dict = update_revisions_and_links(wiki_title, agent_email,
-                                               revision_writer,
+                                               revision_path,
                                                wikilink_dict, earliest_date,
                                                latest_date='NOW')
-
-    # Close the revision csv
-    revision_csv.close()
 
     # Dump pickle file
     with open(wiklink_directory / (wiki_title + '.json'), 'w') as topick:
         json.dump(wikilink_dict, topick)
 
 
-def update_revisions_and_links(wiki_title, agent_email, revision_csv,
+def append_row(csv_file_path, row):
+    """This function was written to deal with having files left open"""
+    with open(csv_file_path, encoding='UTF-16', mode='a', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(row)
+
+
+def update_revisions_and_links(wiki_title, agent_email, revision_csv_path,
                                wikilink_dict, earliest_date, latest_date='NOW',
                                host='https://en.wikipedia.org'):
     """"""
@@ -129,20 +130,20 @@ def update_revisions_and_links(wiki_title, agent_email, revision_csv,
              wikilink_dict] = parsed_article_metrics(parsed, revid,
                                                      wikilink_dict)
 
-            try:
-                revision_csv.writerow([wiki_title, revid, parent_id,
-                                       contrib_username, contrib_id,
-                                       timestamp, comment, character_count,
-                                       word_count,
-                                       external_link_count, heading_count,
-                                       wikilink_count, wikifile_count])
-            except UnicodeEncodeError:
-                print([wiki_title, revid, parent_id,
-                       contrib_username, contrib_id,
-                       timestamp, comment, character_count,
-                       word_count,
-                       external_link_count, heading_count,
-                       wikilink_count, wikifile_count])
+
+            append_row(revision_csv_path,
+                       [wiki_title, revid, parent_id,
+                        contrib_username, contrib_id,
+                        timestamp, comment, character_count,
+                        word_count,
+                        external_link_count, heading_count,
+                        wikilink_count, wikifile_count])
+            # print([wiki_title, revid, parent_id,
+            #        contrib_username, contrib_id,
+            #        timestamp, comment, character_count,
+            #        word_count,
+            #        external_link_count, heading_count,
+            #        wikilink_count, wikifile_count])
 
         if quit_this_function:
             return wikilink_dict
@@ -177,7 +178,6 @@ def revision_information(revision_json):
     return [revision_json['revid'], parent_id,
             contrib_username, contrib_id,
             revision_json['timestamp'], comment]
-
 
 
 def process_wikilinks(parsed, revid, wikilink_dictionary):
