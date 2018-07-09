@@ -45,6 +45,8 @@ def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
     revision_directory.mkdir(parents=True, exist_ok=True)
 
     # Consult the database file TODO
+    database_heading = ['page_title', 'wikilinks_date', 'revision_date', 'pageview_date']
+
     # This csv will have all pages with timestamps of when they were updated
 
     headings = ['page_title', 'revid', 'parentid', 'user', 'userid',
@@ -52,15 +54,31 @@ def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
                 'character_count', 'word_count', 'external_link_count',
                 'heading_count', 'wikifile_count', 'wikilink_count']
     # Check the revision history file
-    revision_path = revision_directory / (wiki_title + '.csv')
-    if not revision_path.is_file():
-        with open(revision_path, encoding='UTF-16',
-                  mode='w', newline='') as file:
-            csvwriter = csv.writer(file)
-            csvwriter.writerow(headings)
+
+    # there are some filepaths with '/' in their title this deals with that
+    if ':de:' in wiki_title:
+        print('Probably a foreign wiki')
+        print(wiki_title)
+        return
+    revision_path = revision_directory / (wiki_title.replace('/', '--').replace('"', '--').replace('?', '-question-') + '.csv')
+
+    try:
+        if not revision_path.is_file():
+            with open(revision_path, encoding='UTF-16',
+                      mode='w', newline='') as file:
+                csvwriter = csv.writer(file)
+                csvwriter.writerow(headings)
+        else:
+            # This is a hack to not continually add edits to these things
+            # Will work better when there is a database to update
+            return
+    except:
+        print('bad file path')
+        print(revision_path)
+        return
 
     # Check the wikilinks file
-    if (wiklink_directory / (wiki_title + '.json')).is_file():
+    if (wiklink_directory / (wiki_title.replace('/', '--').replace('"', '--').replace('?', '-question-') + '.json')).is_file():
         with open(wiklink_directory / (wiki_title + '.json'), 'r') as tounpick:
             wikilink_dict = json.load(tounpick)
     else:
@@ -73,7 +91,7 @@ def collect_consoidate_historical_edits(directory, wiki_title, agent_email,
                                                latest_date='NOW')
 
     # Dump pickle file
-    with open(wiklink_directory / (wiki_title + '.json'), 'w') as topick:
+    with open(wiklink_directory / (wiki_title.replace('/', '--').replace('"', '--').replace('?', '-question-') + '.json'), 'w') as topick:
         json.dump(wikilink_dict, topick)
 
 
@@ -97,10 +115,18 @@ def update_revisions_and_links(wiki_title, agent_email, revision_csv_path,
                                              prop='revisions',
                                              rvprop='ids|flags|timestamp|comment|user|userid|content',
                                              rvlimit='max')):
+        try:
+            if '-1' in revision_set['query']['pages'].keys():
+                print('wiki_title_doesnt exist')
+                print(wiki_title)
+                return
+        except:
+            print('wiki_title_error')
+            print(wiki_title)
+            return
 
         # Iterate over revision
         for count, revision in enumerate(next(iter(revision_set['query']['pages'].values()))['revisions']):
-
             # Extract edit information
             try:
                 [revid, parent_id,
