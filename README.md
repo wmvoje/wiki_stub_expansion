@@ -1,7 +1,19 @@
-# wiki stub expansion
+# Finding main factors that contribute to wikipedia page popularity
+## Summary
+This project studies the characteristics of a Wikipedia page (number of words, number of Wikipedia links, number of images it contains, etc...) to identify characteristics that correlate with a page popularity.
 
-A data science project which models the popularity of Wikipedia pages based on page attributes. Examples of these attributes are: number of links in an page, number of words in a page, and the number of edits a page has received.
+Here I find relationships using data from ~8000 wikiedia pages. The pool of Wikipedia pages were populated by enumerating all Wikipedia pages that are listed by a seed population of 20 pages.
 
-Initial analysis has idenfied that the number of links external websites, the number of wikipedia pages that point to the website in question, and the number of wikifiles that are linked to by a page are strongly correlated with increased number of page views.
+## Questions Explored:
+- Which factor(s) most strongly coorlate with a page popularity?
+
+## Techniques used:
+- OLS regression
+
+## Key Findings:
+- The number of images in a page, the number of external links in a page, and the number of Wikipedia articles that reference a page correlate strongly with a pages popularity
+
+## Data sources:
+- en.wikipedia
 
 
