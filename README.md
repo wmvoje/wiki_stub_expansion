@@ -9,6 +9,9 @@ Here I find relationships using data from ~8000 wikiedia pages. The pool of Wiki
 
 ## Techniques used:
 - OLS regression
+- VIF
+- Ridge Regression
+- LASSO Regression
 
 ## Key Findings:
 - The number of images in a page, the number of external links in a page, and the number of Wikipedia articles that reference a page correlate strongly with a pages popularity
